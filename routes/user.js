@@ -1,4 +1,5 @@
 const User = require('../models/user'); 
+const Task = require('../models/task'); 
 
 module.exports = function (router) {
 
@@ -7,17 +8,38 @@ module.exports = function (router) {
 
     userRoute.get(async (req, res) => {
         try {
-            const users = await User.find(); 
-            res.status(200).json({ message: "OK", data: users });
-        } catch (err) {
-            console.error(err);
-            res.status(500).json({ error: 'Could not retrieve users' });
-        }
+            const where = req.query.where ? JSON.parse(req.query.where) : {};
+            const sort = req.query.sort ? JSON.parse(req.query.sort) : {};
+            const select = req.query.select ? JSON.parse(req.query.select) : {};
+            const skip = parseInt(req.query.skip) || 0;
+            const limit = parseInt(req.query.limit);
+            const count = req.query.count === 'true';
+
+            if (count) {
+                const total = await User.countDocuments(where);
+                return res.json({ message: "users successfully fetched", data: total });
+            }
+
+            const users = await User.find(where)
+            .sort(sort)
+            .select(select)
+            .skip(skip)
+            .limit(limit);
+                    res.status(200).json({ message: "users successfully fetched", data: users });
+                } catch (err) {
+                    console.error(err);
+                    res.status(500).json({ error: 'Could not retrieve users' });
+                }
     });
 
     userRoute.post(async (req, res) => {
         try {
             const { name, email, pendingTasks } = req.body;
+            if (!name || !email) {
+                return res.status(400).json({ error: 'Must provide name and email for user to insert' });
+            }
+            const user = await User.find({email: email});
+            if (user) return res.status(404).json({ error: 'Cannot insert a new user with a duplicate email address' });
             const newUser = new User({
                 name,
                 email,
@@ -25,7 +47,7 @@ module.exports = function (router) {
             });
             const savedUser = await newUser.save();
 
-            res.status(201).json({ message: "OK", data: savedUser });
+            res.status(201).json({ message: "Specified user has been created", data: savedUser });
         } catch (err) {
             console.error(err);
             res.status(500).json({ error: 'Could not insert specified user' });
@@ -36,7 +58,11 @@ module.exports = function (router) {
         try {
             const user = await User.findById(req.params.id);
             if (!user) return res.status(404).json({ error: 'Could not find specified user to get' });
-            res.status(200).json({ message: "OK", data: user });
+
+            const select = req.query.select ? JSON.parse(req.query.select) : {};
+            const finalized = await User.findById(req.params.id).select(select);
+
+            res.status(200).json({ message: "Specified user has been retrieved", data: finalized });
         } catch (err) {
             console.error(err);
             res.status(500).json({ error: 'Could not find specified user to get - Server error' });
@@ -47,7 +73,11 @@ module.exports = function (router) {
         try {
             const user = await User.findById(req.params.id);
             if (!user) return res.status(404).json({ error: 'Could not find specified user to update' });
-
+            if (!name || !email) {
+                return res.status(400).json({ error: 'Must provide new name and new email for user to update' });
+            }
+            const otherUser = await User.find({email: email});
+            if (otherUser && otherUser != user) return res.status(404).json({ error: 'Cannot update a user with a duplicate email address' });
             const { name, email, pendingTasks } = req.body;
             const updatedUser = await User.replaceOne(
                 { _id: req.params.id }, 
@@ -58,8 +88,15 @@ module.exports = function (router) {
                     pendingTasks: pendingTasks || []
                 }
             );
+            for (let i = 0; i < updatedUser.pendingTasks.length; i++) {
+                const task = await Task.findById(user.pendingTasks[i]);
+                if (task) {
+                    task.assignedUser = req.params.id
+                    task.assignedUserName = updatedUser.name;
+                }
+            }
 
-            res.status(200).json({ message: "OK", data: updatedUser });
+            res.status(200).json({ message: "Specified user has been updated", data: updatedUser });
         } catch (err) {
             console.error(err);
             res.status(500).json({ error: 'Could not find specified user to update - Server error' });
@@ -70,8 +107,15 @@ module.exports = function (router) {
         try {
             const user = await User.findById(req.params.id);
             if (!user) return res.status(404).json({ error: 'Could not find specified user to delete' });
+            for (let i = 0; i < user.pendingTasks.length; i++) {
+                const task = await Task.findById(user.pendingTasks[i]);
+                if (task) {
+                    task.assignedUser = "";
+                    task.assignedUserName = "unassigned";
+                }
+            }
             await User.deleteOne({ _id: req.params.id });
-            res.status(200).json({ message: "OK", data: "success" });
+            res.status(204).json({ message: "Specified user has been deleted", data: "success" });
         } catch (err) {
             console.error(err);
             res.status(500).json({ error: 'Could not find specified user to delete - Server error' });

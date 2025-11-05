@@ -8,8 +8,24 @@ module.exports = function (router) {
 
     taskRoute.get(async (req, res) => {
         try {
-            const tasks = await Task.find(); 
-            res.status(200).json({ message: "OK", data: tasks });
+            const where = req.query.where ? JSON.parse(req.query.where) : {};
+            const sort = req.query.sort ? JSON.parse(req.query.sort) : {};
+            const select = req.query.select ? JSON.parse(req.query.select) : {};
+            const skip = parseInt(req.query.skip) || 0;
+            const limit = parseInt(req.query.limit) || 100;
+            const count = req.query.count === 'true';
+
+            if (count) {
+              const total = await Task.countDocuments(where);
+              return res.json({ message: "tasks successfully fetched", data: total });
+            }
+
+            const tasks = await Task.find(where)
+              .sort(sort)
+              .select(select)
+              .skip(skip)
+              .limit(limit);
+            res.status(200).json({ message: "tasks successfully fetched", data: tasks });
         } catch (err) {
             console.error(err);
             res.status(500).json({ error: 'Could not retrieve tasks' });
@@ -19,11 +35,14 @@ module.exports = function (router) {
     taskRoute.post(async (req, res) => {
         try {
             const { name, description, deadline, completed, assignedUser, assignedUserName } = req.body;
+            if (!name || !deadline) {
+                return res.status(400).json({ error: 'Must provide name and deadline for task to insert' });
+            }
             const newTask = new Task({
                 name,
-                description,
+                description: description || " ",
                 deadline,
-                completed,
+                completed: completed || false,
                 assignedUser,
                 assignedUserName, 
             });
@@ -37,7 +56,7 @@ module.exports = function (router) {
                 );
             }
 
-            res.status(201).json({ message: "OK", data: savedTask });
+            res.status(201).json({ message: "Specified task has been created", data: savedTask });
         } catch (err) {
             console.error(err);
             res.status(500).json({ error: 'Could not insert specified task' });
@@ -48,7 +67,12 @@ module.exports = function (router) {
         try {
             const task = await Task.findById(req.params.id);
             if (!task) return res.status(404).json({ error: 'Could not find specified task to get' });
-            res.status(200).json({ message: "OK", data: task });
+
+            const select = req.query.select ? JSON.parse(req.query.select) : {};
+            const finalized = await Task.findById(req.params.id).select(select);
+
+            res.status(200).json({ message: "Specified user has been retrieved", data: finalized });
+
         } catch (err) {
             console.error(err);
             res.status(500).json({ error: 'Could not find specified task to get - Server error' });
@@ -61,20 +85,38 @@ module.exports = function (router) {
             if (!task) return res.status(404).json({ error: 'Could not find specified task to update' });
 
             const { name, description, deadline, completed, assignedUser, assignedUserName } = req.body;
+            if (!name || !deadline) {
+                return res.status(400).json({ error: 'Must provide new name and new deadline for task to update' });
+            }
+            if (task.assignedUser) {
+                await User.findByIdAndUpdate(
+                    task.assignedUser,
+                    { $pull: { pendingTasks: task._id } },
+                    { new: true }
+                );
+            }
             const updatedTask = await Task.replaceOne(
                 { _id: req.params.id }, 
                 {
                     _id: req.params.id, 
                     name,
-                    description,
+                    description: description || " ",
                     deadline,
-                    completed,
+                    completed: completed || false,
                     assignedUser,
                     assignedUserName
                 }
             );
+            if (assignedUser) {
+                await User.findByIdAndUpdate(
+                    assignedUser,
+                    { $push: { pendingTasks: updatedTask._id } },
+                    { new: true }
+                );
+            }
 
-            res.status(200).json({ message: "OK", data: updatedTask });
+
+            res.status(200).json({ message: "Specified task has been updated", data: updatedTask });
         } catch (err) {
             console.error(err);
             res.status(500).json({ error: 'Could not find specified task to update - Server error' });
@@ -85,8 +127,19 @@ module.exports = function (router) {
         try {
             const task = await Task.findById(req.params.id);
             if (!task) return res.status(404).json({ error: 'Could not find specified user to delete' });
+
+            if (task.assignedUser) {
+                await User.findByIdAndUpdate(
+                    task.assignedUser,
+                    { $pull: { pendingTasks: task._id } },
+                    { new: true }
+                );
+            }
+
+
+
             await Task.deleteOne({ _id: req.params.id });
-            res.status(200).json({ message: "OK", data: "success" });
+            res.status(204).json({ message: "Specified task has been deleted", data: "success" });
         } catch (err) {
             console.error(err);
             res.status(500).json({ error: 'Could not find specified user to delete - Server error' });
