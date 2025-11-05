@@ -28,7 +28,7 @@ module.exports = function (router) {
             res.status(200).json({ message: "tasks successfully fetched", data: tasks });
         } catch (err) {
             console.error(err);
-            res.status(500).json({ error: 'Could not retrieve tasks' });
+            res.status(500).json({ message: 'Could not retrieve tasks', data: {} });
         }
     });
    
@@ -36,19 +36,19 @@ module.exports = function (router) {
         try {
             const { name, description, deadline, completed, assignedUser, assignedUserName } = req.body;
             if (!name || !deadline) {
-                return res.status(400).json({ error: 'Must provide name and deadline for task to insert' });
+                return res.status(400).json({ message: 'Must provide name and deadline for task to insert', data: {} });
             }
             const newTask = new Task({
                 name,
-                description: description || " ",
+                description: description || "",
                 deadline,
                 completed: completed || false,
-                assignedUser,
-                assignedUserName, 
+                assignedUser: assignedUser || "",
+                assignedUserName: assignedUserName || "unassigned", 
             });
             const savedTask = await newTask.save();
 
-            if (assignedUser) {
+            if (assignedUser && !savedTask.completed) {
                 await User.findByIdAndUpdate(
                     assignedUser,
                     { $push: { pendingTasks: savedTask._id } },
@@ -59,14 +59,14 @@ module.exports = function (router) {
             res.status(201).json({ message: "Specified task has been created", data: savedTask });
         } catch (err) {
             console.error(err);
-            res.status(500).json({ error: 'Could not insert specified task' });
+            res.status(500).json({ message: 'Could not insert specified task', data: {} });
         }
     });
 
     taskRouteByID.get(async (req, res) => {
         try {
             const task = await Task.findById(req.params.id);
-            if (!task) return res.status(404).json({ error: 'Could not find specified task to get' });
+            if (!task) return res.status(404).json({ message: 'Could not find specified task to get', data: {} });
 
             const select = req.query.select ? JSON.parse(req.query.select) : {};
             const finalized = await Task.findById(req.params.id).select(select);
@@ -75,18 +75,18 @@ module.exports = function (router) {
 
         } catch (err) {
             console.error(err);
-            res.status(500).json({ error: 'Could not find specified task to get - Server error' });
+            res.status(500).json({ message: 'Could not find specified task to get - Server error', data: {} });
         }
     });
 
     taskRouteByID.put(async (req, res) => {
         try {
             const task = await Task.findById(req.params.id);
-            if (!task) return res.status(404).json({ error: 'Could not find specified task to update' });
+            if (!task) return res.status(404).json({ message: 'Could not find specified task to update', data: {} });
 
             const { name, description, deadline, completed, assignedUser, assignedUserName } = req.body;
             if (!name || !deadline) {
-                return res.status(400).json({ error: 'Must provide new name and new deadline for task to update' });
+                return res.status(400).json({ message: 'Must provide new name and new deadline for task to update', data: {} });
             }
             if (task.assignedUser) {
                 await User.findByIdAndUpdate(
@@ -97,11 +97,18 @@ module.exports = function (router) {
             }
             const updatedTask = await Task.findByIdAndUpdate(
                 req.params.id,
-                { name, description, deadline, completed, assignedUser, assignedUserName },
+                { 
+                    name, 
+                    description: description || "", 
+                    deadline, 
+                    completed: completed || false, 
+                    assignedUser: assignedUser || "", 
+                    assignedUserName: assignedUserName || "unassigned" 
+                },
                 { new: true }
             );
 
-            if (assignedUser) {
+            if (assignedUser && !updatedTask.completed) {
                 await User.findByIdAndUpdate(
                     assignedUser,
                     { $push: { pendingTasks: req.params.id } },
@@ -109,18 +116,17 @@ module.exports = function (router) {
                 );
             }
 
-
             res.status(200).json({ message: "Specified task has been updated", data: updatedTask });
         } catch (err) {
             console.error(err);
-            res.status(500).json({ error: 'Could not find specified task to update - Server error' });
+            res.status(500).json({ message: 'Could not find specified task to update - Server error', data: {} });
         }
     });
 
     taskRouteByID.delete(async (req, res) => {
         try {
             const task = await Task.findById(req.params.id);
-            if (!task) return res.status(404).json({ error: 'Could not find specified user to delete' });
+            if (!task) return res.status(404).json({ message: 'Could not find specified task to delete', data: {} });
 
             if (task.assignedUser) {
                 await User.findByIdAndUpdate(
@@ -130,13 +136,11 @@ module.exports = function (router) {
                 );
             }
 
-
-
             await Task.deleteOne({ _id: req.params.id });
-            res.status(204).json({ message: "Specified task has been deleted", data: "success" });
+            res.status(200).json({ message: "Specified task has been deleted", data: "success" });
         } catch (err) {
             console.error(err);
-            res.status(500).json({ error: 'Could not find specified user to delete - Server error' });
+            res.status(500).json({ message: 'Could not find specified task to delete - Server error', data: {} });
         }
     });
 
