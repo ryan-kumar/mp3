@@ -71,7 +71,7 @@ module.exports = function (router) {
             const select = req.query.select ? JSON.parse(req.query.select) : {};
             const finalized = await Task.findById(req.params.id).select(select);
 
-            res.status(200).json({ message: "Specified user has been retrieved", data: finalized });
+            res.status(200).json({ message: "Specified task has been retrieved", data: finalized });
 
         } catch (err) {
             console.error(err);
@@ -95,22 +95,16 @@ module.exports = function (router) {
                     { new: true }
                 );
             }
-            const updatedTask = await Task.replaceOne(
-                { _id: req.params.id }, 
-                {
-                    _id: req.params.id, 
-                    name,
-                    description: description || " ",
-                    deadline,
-                    completed: completed || false,
-                    assignedUser,
-                    assignedUserName
-                }
+            const updatedTask = await Task.findByIdAndUpdate(
+                req.params.id,
+                { name, description, deadline, completed, assignedUser, assignedUserName },
+                { new: true }
             );
+
             if (assignedUser) {
                 await User.findByIdAndUpdate(
                     assignedUser,
-                    { $push: { pendingTasks: updatedTask._id } },
+                    { $push: { pendingTasks: req.params.id } },
                     { new: true }
                 );
             }

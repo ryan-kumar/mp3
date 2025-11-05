@@ -38,8 +38,8 @@ module.exports = function (router) {
             if (!name || !email) {
                 return res.status(400).json({ error: 'Must provide name and email for user to insert' });
             }
-            const user = await User.find({email: email});
-            if (user) return res.status(404).json({ error: 'Cannot insert a new user with a duplicate email address' });
+            const user = await User.findOne({ email });
+            if (user) return res.status(400).json({ error: 'Duplicate email address not allowed' });
             const newUser = new User({
                 name,
                 email,
@@ -73,26 +73,26 @@ module.exports = function (router) {
         try {
             const user = await User.findById(req.params.id);
             if (!user) return res.status(404).json({ error: 'Could not find specified user to update' });
+            const { name, email, pendingTasks } = req.body;
             if (!name || !email) {
                 return res.status(400).json({ error: 'Must provide new name and new email for user to update' });
             }
-            const otherUser = await User.find({email: email});
-            if (otherUser && otherUser != user) return res.status(404).json({ error: 'Cannot update a user with a duplicate email address' });
-            const { name, email, pendingTasks } = req.body;
-            const updatedUser = await User.replaceOne(
-                { _id: req.params.id }, 
-                {
-                    _id: req.params.id, 
-                    name,
-                    email,
-                    pendingTasks: pendingTasks || []
-                }
+            const otherUser = await User.findOne({ email });
+            if (otherUser && otherUser._id.toString() !== user._id.toString()) {
+                return res.status(400).json({ error: 'Duplicate email address not allowed' });
+            }
+            const updatedUser = await User.findByIdAndUpdate(
+                req.params.id,
+                { name, email, pendingTasks: pendingTasks || [] },
+                { new: true }
             );
-            for (let i = 0; i < updatedUser.pendingTasks.length; i++) {
-                const task = await Task.findById(user.pendingTasks[i]);
+
+            for (const taskId of updatedUser.pendingTasks) {
+                const task = await Task.findById(taskId);
                 if (task) {
-                    task.assignedUser = req.params.id
+                    task.assignedUser = updatedUser._id;
                     task.assignedUserName = updatedUser.name;
+                    await task.save();
                 }
             }
 
@@ -112,6 +112,7 @@ module.exports = function (router) {
                 if (task) {
                     task.assignedUser = "";
                     task.assignedUserName = "unassigned";
+                    await task.save();
                 }
             }
             await User.deleteOne({ _id: req.params.id });
